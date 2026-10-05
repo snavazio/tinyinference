@@ -525,3 +525,26 @@ fn recoverable_failure_text_matches_transient_markers_only() {
     assert!(!is_recoverable_failure_text("permission denied"));
     assert!(!is_recoverable_failure_text("exit code 1"));
 }
+
+#[test]
+fn status_codes_match_only_as_standalone_tokens() {
+    // Real status shapes still classify.
+    assert!(is_payment_required_text(
+        "openhuman api error (402 payment required): {}"
+    ));
+    assert!(is_rate_limit_text("status=429"));
+    assert!(is_auth_error_text("returned http 401: bad token"));
+    assert!(is_server_error_text("returned http 503: overloaded"));
+    assert!(is_server_error_text("api error (500)"));
+}
+
+#[test]
+fn status_digits_inside_other_tokens_do_not_classify() {
+    // A tool list naming `x402_request` was reported as "out of credits".
+    let tools = "driver failed: session tool snapshot declares non-executable tools: \
+                 wallet_status, x402_request, web3_swap_quote";
+    assert!(!is_payment_required_text(tools));
+    assert!(!is_server_error_text("turn took 1500ms over 5003 tokens"));
+    assert!(!is_rate_limit_text("request_id=a1429b input_tokens=14290"));
+    assert!(!is_auth_error_text("thread-4401f2 failed"));
+}

@@ -300,11 +300,28 @@ fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
     }
 }
 
+/// Whether `code` (an HTTP status such as `"402"`) appears in `lower` as a
+/// standalone token: not glued to a letter, digit or `_` on either side.
+///
+/// A bare `contains("402")` also matched tool names like `x402_request`,
+/// request ids, token counts and timings (`1500ms`), so an unrelated failure
+/// whose text listed those was reported as a billing, auth, rate-limit or
+/// outage error. Status codes in error text are always delimited
+/// (`(402 Payment Required)`, `HTTP 503:`, `status=429`).
+fn contains_status_code(lower: &str, code: &str) -> bool {
+    let is_word = |ch: char| ch.is_ascii_alphanumeric() || ch == '_';
+    lower.match_indices(code).any(|(start, _)| {
+        let before = lower[..start].chars().next_back();
+        let after = lower[start + code.len()..].chars().next();
+        !before.is_some_and(is_word) && !after.is_some_and(is_word)
+    })
+}
+
 /// Whether a lowercased flattened error reads as a rate limit (`rate limit`
-/// wording or a bare `429`). The broadest of the status-ish arms: a host must
-/// test its own, more specific rate caps first.
+/// wording or a standalone `429`). The broadest of the status-ish arms: a
+/// host must test its own, more specific rate caps first.
 pub fn is_rate_limit_text(lower: &str) -> bool {
-    lower.contains("rate limit") || lower.contains("429")
+    lower.contains("rate limit") || contains_status_code(lower, "429")
 }
 
 /// Whether a lowercased flattened error reads as a request timeout.
@@ -313,26 +330,28 @@ pub fn is_timeout_text(lower: &str) -> bool {
 }
 
 /// Whether a lowercased flattened error reads as an authentication failure
-/// (`401`, `unauthorized`, or a mention of the API key).
+/// (a standalone `401`, `unauthorized`, or a mention of the API key).
 pub fn is_auth_error_text(lower: &str) -> bool {
-    lower.contains("401") || lower.contains("unauthorized") || lower.contains("api key")
+    contains_status_code(lower, "401")
+        || lower.contains("unauthorized")
+        || lower.contains("api key")
 }
 
 /// Whether a lowercased flattened error reads as a payment / balance failure
-/// (`402`, `payment required`, `insufficient balance`).
+/// (a standalone `402`, `payment required`, `insufficient balance`).
 pub fn is_payment_required_text(lower: &str) -> bool {
-    lower.contains("402")
+    contains_status_code(lower, "402")
         || lower.contains("payment required")
         || lower.contains("insufficient balance")
 }
 
 /// Whether a lowercased flattened error reads as a provider-side 5xx outage
-/// (`500`, `internal server`, `service unavailable`, `503`).
+/// (a standalone `500` or `503`, `internal server`, `service unavailable`).
 pub fn is_server_error_text(lower: &str) -> bool {
-    lower.contains("500")
+    contains_status_code(lower, "500")
         || lower.contains("internal server")
         || lower.contains("service unavailable")
-        || lower.contains("503")
+        || contains_status_code(lower, "503")
 }
 
 /// Whether a lowercased flattened error reads as a context-length overflow:
